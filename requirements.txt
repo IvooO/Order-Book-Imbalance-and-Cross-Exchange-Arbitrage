@@ -1,15 +1,18 @@
-python_version == 3.11
-
+# Core
 streamlit==1.36.0
 pandas==2.2.2
 numpy==1.26.4
+
+# Plotly
 plotly==5.22.0
 
-# Crypto APIs (PROVEN to install)
-ccxt==4.1.23
-python-binance==1.0.17
+# Crypto APIs
+ccxt==4.3.59
+python-binance==1.0.27
 
+# Utilities
 requests==2.31.0
 python-dateutil==2.8.2
+
 
 
