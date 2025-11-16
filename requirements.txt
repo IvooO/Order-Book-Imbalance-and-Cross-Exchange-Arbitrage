@@ -1,5 +1,9 @@
-streamlit>=1.26.0
-pandas>=2.0.3
-numpy>=1.27.0
-plotly>=5.20.0
-python-binance>=1.0.16
+streamlit==1.36.0
+ccxt==4.3.59
+pandas==2.2.2
+numpy==1.26.4
+plotly==5.22.0
+requests==2.32.3
+yfinance==0.2.40
+ta==0.10.2
+python-dateutil==2.9.0
