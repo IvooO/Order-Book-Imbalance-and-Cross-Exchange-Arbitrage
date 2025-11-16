@@ -2,19 +2,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from binance.client import Client
+import ccxt
 import random
 import plotly.express as px
 import plotly.graph_objects as go
 
 # -------------------------
-# 1. BINANCE CONFIG
+# 1. EXCHANGE CONFIG — CCXT (NO API KEYS REQUIRED)
 # -------------------------
-BINANCE_API_KEY = "YOUR_API_KEY"
-BINANCE_API_SECRET = "YOUR_API_SECRET"
-client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
+exchange = ccxt.binance()     # Public endpoints only (safe on Streamlit Cloud)
 
-SYMBOL = "BTCUSDT"
+SYMBOL = "BTC/USDT"
 ORDER_BOOK_LIMIT = 5
 MAX_SIGNALS = 10
 
@@ -22,10 +20,11 @@ MAX_SIGNALS = 10
 # 2. HELPER FUNCTIONS
 # -------------------------
 def get_live_order_book(symbol: str, limit: int = 5):
-    ob = client.get_order_book(symbol=symbol, limit=limit)
-    bids = pd.DataFrame(ob['bids'], columns=['price', 'quantity']).astype(float)
-    asks = pd.DataFrame(ob['asks'], columns=['price', 'quantity']).astype(float)
-    return bids, asks
+    """Returns bids/asks as DataFrames using ccxt."""
+    ob = exchange.fetch_order_book(symbol, limit=limit)
+    bids = pd.DataFrame(ob['bids'], columns=['price', 'quantity'])
+    asks = pd.DataFrame(ob['asks'], columns=['price', 'quantity'])
+    return bids.astype(float), asks.astype(float)
 
 def calculate_obi(bids, asks):
     return bids['quantity'].sum() / asks['quantity'].sum() if asks['quantity'].sum() != 0 else np.inf
@@ -60,9 +59,17 @@ def create_depth_chart(bids, asks):
     asks["cumsum"] = asks["quantity"].cumsum()
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=bids['price'], y=bids['cumsum'], fill='tozeroy', mode='lines', name='Bids', line_color="#00c7a5"))
-    fig.add_trace(go.Scatter(x=asks['price'], y=asks['cumsum'], fill='tozeroy', mode='lines', name='Asks', line_color="#ff4c4c"))
-    fig.update_layout(title="Market Depth", xaxis_title="Price (USD)", yaxis_title="Cumulative Quantity (BTC)")
+    fig.add_trace(go.Scatter(x=bids['price'], y=bids['cumsum'], fill='tozeroy',
+                             mode='lines', name='Bids', line_color="#00c7a5"))
+    fig.add_trace(go.Scatter(x=asks['price'], y=asks['cumsum'], fill='tozeroy',
+                             mode='lines', name='Asks', line_color="#ff4c4c"))
+
+    fig.update_layout(
+        title="Market Depth",
+        xaxis_title="Price (USD)",
+        yaxis_title="Cumulative Quantity (BTC)",
+        template="plotly_white"
+    )
     return fig
 
 # -------------------------
@@ -77,7 +84,7 @@ if "obi_history" not in st.session_state:
 # 4. STREAMLIT UI
 # -------------------------
 st.set_page_config(page_title="Institutional BTC Dashboard", layout="wide")
-st.title("Institutional  BTC Quant Dashboard")
+st.title("Institutional BTC Quant Dashboard")
 
 # Tabs
 tab_dashboard, tab_strategy = st.tabs([" Dashboard", " Strategy & Analytics"])
@@ -97,19 +104,16 @@ with tab_dashboard:
         current_price = float(bids['price'].iloc[0])
         obi = calculate_obi(bids, asks)
 
-        # 15-min OBI
         now = datetime.now()
         st.session_state.obi_history.append({'timestamp': now, 'obi': obi})
         cutoff = now - timedelta(minutes=15)
         st.session_state.obi_history = [x for x in st.session_state.obi_history if x['timestamp'] > cutoff]
         avg_obi = np.mean([x['obi'] for x in st.session_state.obi_history]) if st.session_state.obi_history else obi
 
-        # Signals
         signal_obi, reason_obi, confidence = generate_obi_signal(avg_obi, obi_threshold)
         position_btc = calculate_position_size(confidence, max_position_usd, current_price)
         arb_signal, arb_action, arb_spread = simulate_arbitrage(current_price, arb_edge/100)
 
-        # Append signal history
         entry = {
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
             "OBI Signal": signal_obi,
@@ -121,7 +125,6 @@ with tab_dashboard:
         st.session_state.signal_history.append(entry)
         st.session_state.signal_history = st.session_state.signal_history[-MAX_SIGNALS:]
 
-        # KPI Cards
         col1, col2, col3 = st.columns(3)
         color_obi = "#00c7a5" if signal_obi=="BUY" else ("#ff4c4c" if signal_obi=="SELL" else "#4c4cff")
         color_arb = "#00c7a5" if "ARB" in arb_signal else "#4c4cff"
@@ -146,17 +149,16 @@ with tab_dashboard:
 
         col3.metric("Recommended Position (BTC)", f"{position_btc:.4f}")
 
-        # Signal history table
         st.subheader("Last 10 Signals")
         st.table(pd.DataFrame(st.session_state.signal_history).sort_values("timestamp", ascending=False))
 
-        # Live Order Book
         st.subheader("Live Order Book")
         col_bids, col_asks = st.columns(2)
         col_bids.markdown(f"**BIDS ({bids['quantity'].sum():.4f} BTC)**")
-        col_bids.dataframe(bids.style.format({"price":"${:,.2f}","quantity":"{:.4f}"}), use_container_width=True)
+        col_bids.dataframe(bids.style.format({"price":"${:,.2f}","quantity":"{:.4f}"}))
+
         col_asks.markdown(f"**ASKS ({asks['quantity'].sum():.4f} BTC)**")
-        col_asks.dataframe(asks.style.format({"price":"${:,.2f}","quantity":"{:.4f}"}), use_container_width=True)
+        col_asks.dataframe(asks.style.format({"price":"${:,.2f}","quantity":"{:.4f}"}))
 
         st.markdown(f"*Last updated: {now.strftime('%Y-%m-%d %H:%M:%S')}*")
 
@@ -169,28 +171,25 @@ with tab_dashboard:
 with tab_strategy:
     st.header("Strategy & Analytics")
 
-    # OBI Trend
     st.subheader("15-min OBI Trend")
     if st.session_state.obi_history:
         df_obi = pd.DataFrame(st.session_state.obi_history)
-        fig_obi = px.line(df_obi, x="timestamp", y="obi", title="OBI Trend (15-min)")
+        fig_obi = px.line(df_obi, x="timestamp", y="obi", title="OBI Trend (15-min)", template="plotly_white")
         st.plotly_chart(fig_obi, use_container_width=True)
 
-    # Market Depth
     st.subheader("Market Depth Chart")
     if 'bids' in locals() and 'asks' in locals():
         depth_chart = create_depth_chart(bids, asks)
         st.plotly_chart(depth_chart, use_container_width=True)
 
-    # Arbitrage Spread History
     st.subheader("Arbitrage Spread History")
     df_signal = pd.DataFrame(st.session_state.signal_history)
     if not df_signal.empty:
-        fig_arb = px.line(df_signal, x="timestamp", y="Arb Spread %", title="Arbitrage Spread (%) Over Last Signals")
+        fig_arb = px.line(df_signal, x="timestamp", y="Arb Spread %", title="Arbitrage Spread (%) Over Last Signals", template="plotly_white")
         st.plotly_chart(fig_arb, use_container_width=True)
 
-    # Position Size Analytics
     st.subheader("Position Size Analytics")
     if not df_signal.empty:
-        fig_pos = px.bar(df_signal, x="timestamp", y="Position BTC", color="OBI Signal", title="Position Size BTC vs Signal")
+        fig_pos = px.bar(df_signal, x="timestamp", y="Position BTC", color="OBI Signal", title="Position Size BTC vs Signal", template="plotly_white")
         st.plotly_chart(fig_pos, use_container_width=True)
+
