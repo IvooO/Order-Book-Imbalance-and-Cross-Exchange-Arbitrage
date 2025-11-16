@@ -1,19 +1,12 @@
-# Core
 streamlit==1.36.0
 pandas==2.2.2
-
-# Numpy built for Python 3.13 wheels (critical!)
-numpy==2.1.1
-
-# Plotly for charts
+numpy==1.26.4
 plotly==5.22.0
 
 # Crypto exchange APIs
-ccxt==4.3.59
-python-binance==1.0.27
+ccxt==4.1.23
+python-binance==1.0.17
 
-# Optional: advanced math & finance
-scipy==1.13.1
-
-# Date handling
+# Utils
 python-dateutil==2.8.2
+requests==2.31.0
